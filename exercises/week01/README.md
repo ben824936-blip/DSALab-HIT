@@ -136,6 +136,31 @@ int main() {
 
 ### Bài 3: Tối ưu hàm ⭐⭐
 Cho 3 hàm O(n²) — tối ưu xuống O(n) hoặc O(n log n). Chứng minh bằng cách đo thời gian.
+Trước — O(n²)
+int subSum_slow(vector<int>& a, int k) {
+  int cnt = 0, n = a.size();
+  for (int i = 0; i < n; i++) {
+    int s = 0;
+    for (int j = i; j < n; j++) {
+      s += a[j];
+      if (s == k) cnt++;
+    }
+  }
+  return cnt;
+}
+Sau — O(n) dùng prefix sum + hash map
+int subSum_fast(vector<int>& a, int k) {
+  unordered_map<int,int> freq;
+  freq[0] = 1;
+  int cnt = 0, prefix = 0;
+  for (int x : a) {
+    prefix += x;
+    cnt += freq[prefix - k];
+    freq[prefix]++;
+  }
+  return cnt;
+}
+
 
 ### Bài 4: 🔥 Dự Án Mini — Big-O Benchmark Tool ⭐⭐⭐
 > **Cảm hứng:** [algorithm-visualizer.org](https://algorithm-visualizer.org)
@@ -151,6 +176,198 @@ Viết chương trình **BenchmarkTool** hiển thị bảng so sánh tốc đ�
 ║    O(n²)     ║  8ms     ║  800ms   ║  80000ms ║
 ╚══════════════╩══════════╩══════════╩══════════╝
 ```
+#include <iostream>
+#include <fstream>
+#include <chrono>
+#include <vector>
+#include <cmath>
+#include <string>
+#include <iomanip>
+#include <unordered_set>
+#include <algorithm>
+#include <functional>
+
+using namespace std;
+using namespace chrono;
+
+// ─── Các hàm đại diện từng complexity ───────────────────────────────────────
+
+void run_O1(int /*n*/) {
+    // O(1): phép toán hằng số
+    volatile int x = 42 * 7;
+    (void)x;
+}
+
+void run_Ologn(int n) {
+    // O(log n): tìm kiếm nhị phân trên mảng giả lập
+    volatile int lo = 0, hi = n - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (mid == n / 3) break;
+        else if (mid < n / 3) lo = mid + 1;
+        else hi = mid - 1;
+    }
+}
+
+void run_On(int n) {
+    // O(n): duyệt tuyến tính
+    volatile long long s = 0;
+    for (int i = 0; i < n; i++) s += i;
+}
+
+void run_On2(int n) {
+    // O(n²): hai vòng lặp lồng nhau (giới hạn n để không quá lâu)
+    int limit = min(n, 5000); // cap để n=100000 không mất hàng phút
+    volatile long long s = 0;
+    for (int i = 0; i < limit; i++)
+        for (int j = 0; j < limit; j++)
+            s += i + j;
+}
+
+// ─── Đo thời gian (trả về millisecond) ──────────────────────────────────────
+
+double measure_ms(function<void(int)> fn, int n, int repeat = 3) {
+    double total = 0;
+    for (int r = 0; r < repeat; r++) {
+        auto t0 = high_resolution_clock::now();
+        fn(n);
+        auto t1 = high_resolution_clock::now();
+        total += duration<double, milli>(t1 - t0).count();
+    }
+    return total / repeat;
+}
+
+// ─── Format số ms thành chuỗi đẹp ───────────────────────────────────────────
+
+string fmt(double ms) {
+    if (ms < 0.001) return "< 0.001ms";
+    ostringstream ss;
+    if (ms < 1.0)
+        ss << fixed << setprecision(3) << ms << "ms";
+    else if (ms < 1000.0)
+        ss << fixed << setprecision(1) << ms << "ms";
+    else
+        ss << fixed << setprecision(1) << ms / 1000.0 << "s ";
+    return ss.str();
+}
+
+// ─── In bảng ra stream (cout hoặc file) ─────────────────────────────────────
+
+void printTable(ostream& out,
+                const vector<string>& headers,
+                const vector<vector<string>>& rows,
+                const vector<int>& widths)
+{
+    // border trên
+    out << "+";
+    for (int w : widths) out << string(w + 2, '-') << "+";
+    out << "\n";
+
+    // header
+    out << "|";
+    for (int i = 0; i < (int)headers.size(); i++)
+        out << " " << left << setw(widths[i]) << headers[i] << " |";
+    out << "\n";
+
+    // separator
+    out << "+";
+    for (int w : widths) out << string(w + 2, '=') << "+";
+    out << "\n";
+
+    // rows
+    for (auto& row : rows) {
+        out << "|";
+        for (int i = 0; i < (int)row.size(); i++) {
+            // cột 0 căn trái, còn lại căn phải
+            if (i == 0)
+                out << " " << left  << setw(widths[i]) << row[i] << " |";
+            else
+                out << " " << right << setw(widths[i]) << row[i] << " |";
+        }
+        out << "\n";
+
+        // separator nhẹ giữa các hàng
+        out << "+";
+        for (int w : widths) out << string(w + 2, '-') << "+";
+        out << "\n";
+    }
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+
+int main() {
+    const vector<int> ns = {1000, 10000, 100000};
+
+    struct Algo {
+        string name;
+        function<void(int)> fn;
+        string note;
+    };
+
+    vector<Algo> algos = {
+        { "O(1)",     run_O1,    "hang so"  },
+        { "O(log n)", run_Ologn, "binary search" },
+        { "O(n)",     run_On,    "tuyen tinh" },
+        { "O(n^2)",   run_On2,   "binh phuong*" },
+    };
+
+    // ── header ──
+    vector<string> headers = { "Thuat toan" };
+    for (int n : ns) headers.push_back("n=" + to_string(n));
+
+    vector<int> widths = { 12 };
+    for (int i = 0; i < (int)ns.size(); i++) widths.push_back(12);
+
+    // ── đo thời gian → build rows ──
+    cout << "\n  Do thoi gian chay cac thuat toan (trung binh 3 lan)...\n\n";
+
+    vector<vector<string>> rows;
+    for (auto& algo : algos) {
+        vector<string> row = { algo.name };
+        for (int n : ns) {
+            cout << "  Dang do " << algo.name << " voi n=" << n << "..." << flush;
+            double ms = measure_ms(algo.fn, n);
+            string s = fmt(ms);
+            row.push_back(s);
+            cout << " " << s << "\n";
+        }
+        rows.push_back(row);
+    }
+
+    cout << "\n";
+
+    // ── in ra console ──
+    cout << "  ╔══════════════════════════════════════════════════╗\n";
+    cout << "  ║          BIG-O BENCHMARK TOOL — KET QUA         ║\n";
+    cout << "  ╚══════════════════════════════════════════════════╝\n\n";
+    printTable(cout, headers, rows, widths);
+    cout << "\n  * O(n^2) gioi han n_thuc <= 5000 de tranh timeout.\n";
+    cout << "  * Moi gia tri la trung binh 3 lan chay.\n";
+    cout << "  * Don vi: ms (millisecond). < 0.001ms = duoi 1 microsecond.\n\n";
+
+    // ── xuất ra file ──
+    ofstream fout("benchmark.txt");
+    if (!fout) {
+        cerr << "  [LOI] Khong the ghi benchmark.txt\n";
+        return 1;
+    }
+
+    fout << "================================================\n";
+    fout << "   BIG-O BENCHMARK TOOL\n";
+    fout << "   Ngay tao: " __DATE__ " " __TIME__ "\n";
+    fout << "   Moi gia tri = trung binh 3 lan chay\n";
+    fout << "================================================\n\n";
+    printTable(fout, headers, rows, widths);
+    fout << "\nGhi chu:\n";
+    fout << "  * O(n^2): gioi han n_thuc = min(n, 5000) de tranh timeout.\n";
+    fout << "  * Don vi: ms. Gia tri < 0.001ms ~ duoi 1 microsecond.\n";
+    fout << "  * Bien dich: g++ -O2 -std=c++17 BenchmarkTool.cpp -o benchmark\n";
+    fout.close();
+
+    cout << "  [OK] Da xuat ket qua ra file: benchmark.txt\n\n";
+    return 0;
+}
+
 
 **Yêu cầu:** dùng `std::chrono`, hiển thị bảng căn chỉnh đẹp, xuất ra file `benchmark.txt`.
 
