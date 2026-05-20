@@ -4,7 +4,11 @@
 Hiểu Big-O, phân tích độ phức tạp, ôn tập C++ cơ bản.
 
 ---
-
+int linearSearch(int arr[], int n, int x) {
+    for (int i = 0; i < n; i++)
+        if (arr[i] == x) return i;
+    return -1;
+}
 ### Bài 1: Phân tích Big-O ⭐
 Xác định Big-O của 10 đoạn code C++ cho trước. Giải thích tại sao.
 
